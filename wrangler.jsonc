@@ -16,6 +16,9 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"alias": {
+    		"ai": "./src/ai-stub.js"
+	},
 	"migrations": [
 		{
 			"new_sqlite_classes": ["ServiceNowMCP"],
