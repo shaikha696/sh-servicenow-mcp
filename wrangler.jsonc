@@ -1,0 +1,40 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * Secrets (set via `wrangler secret put <NAME>`):
+ *   SERVICENOW_USERNAME
+ *   SERVICENOW_PASSWORD
+ *
+ * Vars (committed; switch to secrets if your instance URL is sensitive):
+ *   SERVICENOW_INSTANCE_URL
+ *   ENABLE_SCRIPT_EXECUTION   (set to "true" to register the execute_script tool)
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "rk-servicenow-mcp",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-03-10",
+	"compatibility_flags": ["nodejs_compat"],
+	"migrations": [
+		{
+			"new_sqlite_classes": ["ServiceNowMCP"],
+			"tag": "v1"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "ServiceNowMCP",
+				"name": "MCP_OBJECT"
+			}
+		]
+	},
+	"vars": {
+		"SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+		"ENABLE_SCRIPT_EXECUTION": "false"
+	},
+	"observability": {
+		"enabled": true
+	}
+}
