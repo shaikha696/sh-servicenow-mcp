@@ -34,8 +34,10 @@
 		]
 	},
 	"vars": {
-		"SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-		"ENABLE_SCRIPT_EXECUTION": "false"
+		"SERVICENOW_INSTANCE_URL": "https://alectriqaap206maymed150019.service-now.com",
+		"ENABLE_SCRIPT_EXECUTION": "true",
+		"SERVICENOW_USERNAME": "admin",
+		"SERVICENOW_PASSWORD": "password"
 	},
 	"observability": {
 		"enabled": true
