@@ -15,7 +15,8 @@ export function registerTableTools(server: McpServer, env: Env) {
 	server.tool(
 		"query_table",
 		"Query records from any ServiceNow table via the Table API. " +
-			"Use encoded queries (sysparm_query) for filtering and ORDERBY/ORDERBYDESC for sorting.",
+			"Use encoded queries (sysparm_query) for filtering and ORDERBY/ORDERBYDESC for sorting. " +
+			"If you don't know the exact table name, call search_tables FIRST — do not guess names and probe them here.",
 		{
 			table: z
 				.string()
@@ -91,7 +92,8 @@ export function registerTableTools(server: McpServer, env: Env) {
 
 	server.tool(
 		"create_record",
-		"Create a new record in any table. Pass field values as an object.",
+		"Create a new record in any table. Pass field values as an object. " +
+			"If unsure which fields exist or which values are valid, use get_table_schema and get_choices first.",
 		{
 			table: z.string(),
 			fields: z
@@ -168,6 +170,60 @@ export function registerTableTools(server: McpServer, env: Env) {
 			} catch (e) {
 				return fail(e);
 			}
+		},
+	);
+
+	server.tool(
+		"batch_create_records",
+		"Create multiple records in one table in a single call. Use this for bulk data creation " +
+			"(e.g. 'generate 10 demo incidents') instead of calling create_record repeatedly. " +
+			"Returns the created sys_ids/numbers and reports any per-record failures. " +
+			"For very large batches (100+) or cross-table inserts, prefer execute_script with a GlideRecord loop.",
+		{
+			table: z.string(),
+			records: z
+				.array(z.record(z.any()))
+				.min(1)
+				.max(100)
+				.describe("Array of field => value objects, one per record to create (max 100)."),
+			sysparm_input_display_value: z.boolean().optional(),
+		},
+		async ({ table, records, sysparm_input_display_value }) => {
+			const qs = sysparm_input_display_value
+				? "?sysparm_input_display_value=true"
+				: "";
+			const created: any[] = [];
+			const errors: any[] = [];
+			// Sequential to stay within ServiceNow inbound concurrency limits and
+			// to keep error attribution clean. 100-cap keeps total time bounded.
+			for (let i = 0; i < records.length; i++) {
+				try {
+					const data = await snFetch(
+						env,
+						`/api/now/table/${encodeURIComponent(table)}${qs}`,
+						{ method: "POST", body: JSON.stringify(records[i]) },
+					);
+					const r = data?.result ?? {};
+					created.push({
+						index: i,
+						sys_id: r.sys_id,
+						number: r.number,
+					});
+				} catch (e) {
+					errors.push({
+						index: i,
+						error: e instanceof Error ? e.message : String(e),
+					});
+				}
+			}
+			return ok({
+				table,
+				requested: records.length,
+				created_count: created.length,
+				error_count: errors.length,
+				created,
+				errors,
+			});
 		},
 	);
 }

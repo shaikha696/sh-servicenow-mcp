@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import type { Env } from "./sn-client";
 import { registerAggregateTools } from "./tools/aggregate";
+import { registerDebugTools } from "./tools/debug";
+import { registerExploreTools } from "./tools/explore";
 import { registerIncidentTools } from "./tools/incidents";
 import { registerKnowledgeTools } from "./tools/knowledge";
 import { registerSchemaTools } from "./tools/schema";
@@ -35,9 +37,11 @@ export class ServiceNowMCP extends McpAgent {
 		registerIncidentTools(this.server, env);
 		registerUserTools(this.server, env);
 		registerSchemaTools(this.server, env);
+		registerExploreTools(this.server, env);
 		registerAggregateTools(this.server, env);
 		registerKnowledgeTools(this.server, env);
 		registerUpdateSetTools(this.server, env);
+		registerDebugTools(this.server, env);
 
 		if (env.ENABLE_SCRIPT_EXECUTION === "true") {
 			registerScriptTools(this.server, env);
@@ -53,14 +57,19 @@ export function registeredToolNames(env: Env): string[] {
 		"create_record",
 		"update_record",
 		"delete_record",
+		"batch_create_records",
 		"update_incident",
 		"add_work_note",
 		"get_user",
 		"get_table_schema",
+		"search_tables",
+		"search_fields",
+		"get_choices",
 		"aggregate_table",
 		"search_knowledge",
 		"set_current_update_set",
 		"get_current_update_set",
+		"query_logs",
 	];
 	if (env.ENABLE_SCRIPT_EXECUTION === "true") {
 		base.push("execute_script", "check_script_runner_status", "reinstall_script_runner");
