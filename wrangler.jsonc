@@ -39,9 +39,8 @@
 		]
 	},
 	"vars": {
-		"SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-		"ENABLE_SCRIPT_EXECUTION": "true",
-		"MCP_AUTH_TOKEN": ""
+		"SERVICENOW_INSTANCE_URL": "",
+		"ENABLE_SCRIPT_EXECUTION": "false"
 	},
 	"observability": {
 		"enabled": true

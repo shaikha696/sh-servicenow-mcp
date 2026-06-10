@@ -1,200 +1,154 @@
 # ServiceNow MCP Server
 
-Connect any AI client — Claude, Cursor, or any MCP-compatible tool — directly to a ServiceNow instance. Build, create data, explore the data model, and debug, all through natural language. Runs on Cloudflare Workers.
+A remote [MCP](https://modelcontextprotocol.io) server that connects any MCP client — Claude, Cursor, or anything that speaks MCP — to a ServiceNow instance. Develop, create data, explore the data model, and debug, all through natural language. Runs on Cloudflare Workers, supports multiple users each bringing their own instance.
 
 ```
 "Find the table that stores AI agent execution logs."
 "Generate 15 demo incidents about network outages."
 "What are the valid values for incident.state?"
 "Show me the errors logged in the last 30 minutes."
-"Create a business rule on the incident table that sets priority to 1 when category is 'security'."
+"Create a business rule on incident that sets priority to 1 when category is 'security'."
 ```
 
 ---
 
-## Quick start
+## How it works
 
+```
+   MCP Client (Claude Desktop / Claude.ai / Cursor)
+        │  Authorization: Bearer <token>
+        │  X-ServiceNow-Instance / Username / Password / Script-Execution
+        ▼
+   Cloudflare Worker  ──►  validates token  ──►  resolves credentials
+        │                                              │
+        ▼                                              ▼
+   Durable Object (per session)  ──── Basic Auth ────► ServiceNow REST API
+```
+
+- **One Worker, many users.** Each client passes its own ServiceNow instance + credentials as request headers. The Worker itself holds no instance-specific secrets (beyond an optional default).
+- **Two independent auth layers:**
+  - `MCP_AUTH_TOKEN` — a shared bearer token that gates access to the Worker.
+  - `X-ServiceNow-*` headers — per-client ServiceNow instance and credentials.
+- **Credentials never persist.** They're resolved per-request and passed to the session's Durable Object as props; nothing instance-specific is stored long-term.
+
+---
+
+## Tools
+
+**Explore the data model** (stop guessing table/field names)
+| Tool | Purpose |
+|---|---|
+| `search_tables` | Find tables by name/label (queries `sys_db_object`) |
+| `search_fields` | Find fields across tables, or what references a table (`sys_dictionary`) |
+| `get_table_schema` | All fields on a table, including inherited ones |
+| `get_choices` | Valid values for a choice field before you write data |
+
+**Create & manage data**
+| Tool | Purpose |
+|---|---|
+| `create_record` | Create one record in any table |
+| `batch_create_records` | Create many records in one call (bulk demo data) |
+| `update_record` / `delete_record` | Modify or remove by `sys_id` |
+| `update_incident` | Update an incident by number or `sys_id` |
+| `add_work_note` | Add a work note or customer comment to any task record |
+
+**Query & analyze**
+| Tool | Purpose |
+|---|---|
+| `query_table` | Read records with filtering, sorting, pagination |
+| `get_record` | Fetch one record by `sys_id` |
+| `aggregate_table` | Counts, sums, averages, group-by |
+| `get_user` | Look up a user by username/email |
+| `search_knowledge` | Search published KB articles |
+
+**Debug**
+| Tool | Purpose |
+|---|---|
+| `query_logs` | Read recent `syslog` (gs.log/info/warn/error) by level, source, text, time window |
+
+**Update sets**
+| Tool | Purpose |
+|---|---|
+| `set_current_update_set` / `get_current_update_set` | Scope config changes into an update set |
+
+**Develop (opt-in — requires script execution enabled)**
+| Tool | Purpose |
+|---|---|
+| `execute_script` | Run server-side JavaScript synchronously (GlideRecord, GlideAggregate, Script Includes, etc.) |
+| `check_script_runner_status` / `reinstall_script_runner` | Manage the script-runner endpoint |
+
+---
+
+## Setup
+
+### 1. Clone & install
 ```bash
 git clone https://github.com/ciphervinci/rk-servicenow-mcp
 cd rk-servicenow-mcp
 npm install
-
-# Set your instance URL in wrangler.jsonc → vars.SERVICENOW_INSTANCE_URL
-# (leave empty for multi-tenant mode where each client passes their own)
-
-# Store credentials as encrypted secrets (never commit these)
-npx wrangler secret put SERVICENOW_USERNAME
-npx wrangler secret put SERVICENOW_PASSWORD
-npx wrangler secret put MCP_AUTH_TOKEN   # shared token all clients must send
-
-npm run deploy
 ```
 
-Then connect your client to `https://rk-servicenow-mcp.<your-account>.workers.dev/mcp` with your bearer token and start talking to your instance.
-
-Check it's live: `curl https://rk-servicenow-mcp.<your-account>.workers.dev/health`
-
----
-
-## What you can do
-
-### 🔍 Explore the data model
-Stop guessing table and field names. These query ServiceNow's metadata directly.
-
-| Tool | Use it for |
-|---|---|
-| `search_tables` | "Which table holds X?" — finds tables by name or label via `sys_db_object`. |
-| `search_fields` | "Which table has field X?" / "What references sys_user?" — searches `sys_dictionary`. |
-| `get_table_schema` | List every field on a known table, including fields inherited from parent tables. |
-| `get_choices` | Valid values for a choice field (e.g. all `incident.state` options) before you write data. |
-
-### 📝 Create and manage data
-
-| Tool | Use it for |
-|---|---|
-| `create_record` | Create one record in any table. |
-| `batch_create_records` | Create many records in one call — bulk demo data, test sets. |
-| `update_record` | Update any record by `sys_id`. |
-| `delete_record` | Delete a record by `sys_id`. |
-| `update_incident` | Update an incident by number (`INC0010001`) or `sys_id`. |
-| `add_work_note` | Add a work note or customer comment to any task record. |
-
-### 📊 Query and analyze
-
-| Tool | Use it for |
-|---|---|
-| `query_table` | Read records from any table with filtering, sorting, pagination. |
-| `get_record` | Fetch one record by `sys_id`. |
-| `aggregate_table` | Counts, sums, averages, group-by — without pulling every row. |
-| `get_user` | Look up a user by username or email. |
-| `search_knowledge` | Search published KB articles. |
-
-### 🐛 Debug
-
-| Tool | Use it for |
-|---|---|
-| `query_logs` | Read recent `syslog` entries (gs.log/info/warn/error output). Filter by level, source, text, and time window. The fastest way to see why a script failed. |
-
-### ⚙️ Develop (advanced — opt-in)
-
-Set `ENABLE_SCRIPT_EXECUTION="true"` to enable these. Requires admin on the instance.
-
-| Tool | Use it for |
-|---|---|
-| `execute_script` | Run server-side JavaScript synchronously (GlideRecord, GlideAggregate, Script Includes, anything). |
-| `check_script_runner_status` | See if the script-runner endpoint is installed and where. |
-| `reinstall_script_runner` | Rebuild the script-runner endpoint. |
-
-### 🗂️ Update sets
-
-| Tool | Use it for |
-|---|---|
-| `set_current_update_set` | Scope your config changes into a chosen update set. |
-| `get_current_update_set` | Check which update set is currently active. |
-
----
-
-## Detailed setup
-
-### 1. Instance URL
-
-Edit `wrangler.jsonc`:
-
-```jsonc
-"vars": {
-    "SERVICENOW_INSTANCE_URL": "https://devXXXXX.service-now.com",
-    "ENABLE_SCRIPT_EXECUTION": "false"
-}
-```
-
-No trailing slash. Set `ENABLE_SCRIPT_EXECUTION` to `"true"` only if you want background script execution.
-
-### 2. Auth token + credentials (as secrets, never vars)
-
+### 2. Set the auth token as a secret
 ```bash
-# The shared bearer token every client must send
-npx wrangler secret put MCP_AUTH_TOKEN
-
-# Default ServiceNow credentials (used when no X-ServiceNow-* headers are passed)
-npx wrangler secret put SERVICENOW_USERNAME
-npx wrangler secret put SERVICENOW_PASSWORD
-```
-
-> ⚠️ **Never put credentials or tokens in `wrangler.jsonc`.** It's committed to git. Secrets are encrypted and live only in Cloudflare.
-
-**Generate a strong `MCP_AUTH_TOKEN`:**
-```bash
+# Generate a strong token
 openssl rand -hex 32
-# or
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# Store it as an encrypted secret (NOT a plaintext var)
+npx wrangler secret put MCP_AUTH_TOKEN
 ```
 
-### 3. ServiceNow service account roles
+> **Why a secret, not a var:** Git-based deploys overwrite dashboard vars with whatever is in `wrangler.jsonc`. Secrets are never touched by deploys. If you put the token in `vars`, a redeploy will wipe it and leave your Worker open.
 
-Create a dedicated user (don't reuse a personal admin login). Grant only what you need:
-
-| What you'll do | Roles |
-|---|---|
-| Read tables | `snc_read_only` or table ACLs |
-| ITSM (incident/change/problem) | `itil` |
-| Knowledge search | `knowledge` |
-| Explore metadata, read logs | `admin` or read on `sys_dictionary`, `sys_db_object`, `sys_choice`, `syslog` |
-| Update sets | write on `sys_user_preference` |
-| `execute_script` | `admin` |
+### 3. (Optional) Set a default instance
+For single-user mode, set default ServiceNow credentials so clients don't need to send headers:
+```bash
+npx wrangler secret put SERVICENOW_USERNAME
+npx wrangler secret put SERVICENOW_PASSWORD
+# Set SERVICENOW_INSTANCE_URL in wrangler.jsonc vars (or as a secret)
+```
+For multi-user mode, leave these empty — each client supplies their own via headers.
 
 ### 4. Deploy
-
 ```bash
 npm run deploy
 ```
 
-### 5. Deploying via Cloudflare Git integration
-
-If you deploy by connecting the GitHub repo (instead of `npm run deploy`), set this in **Settings → Build**:
-
+If deploying via the Cloudflare Git integration instead, set under **Settings → Build**:
 | Field | Value |
 |---|---|
 | Build command | `bun add ai@5.0.78` |
 | Deploy command | `npx wrangler deploy` |
 
-The build command works around a bundling issue where esbuild can't resolve a dynamic `import("ai")` inside the `agents` package. Installing `ai` explicitly fixes it.
+(The build command works around an esbuild resolution issue with a dynamic import inside the `agents` package.)
+
+### 5. Verify
+```bash
+curl https://rk-servicenow-mcp.<account>.workers.dev/health
+```
+Returns status, whether auth is enabled, and the tool list. `/health` requires no auth.
 
 ---
 
-## Connect your client
+## Connecting clients
 
 ### Authentication
-
-All endpoints except `/health` require a bearer token when `MCP_AUTH_TOKEN` is set:
+Every endpoint except `/health` requires:
 ```
-Authorization: Bearer <your-token>
+Authorization: Bearer <MCP_AUTH_TOKEN>
 ```
-If `MCP_AUTH_TOKEN` is empty, auth is bypassed (backward-compat single-user mode).
 
-### Multi-tenant credential headers
-
-In multi-tenant mode, each client passes their own ServiceNow credentials as request headers. These override env var defaults:
-
+### Per-client ServiceNow credentials (headers)
 | Header | Description |
 |---|---|
-| `X-ServiceNow-Instance` | `https://devXXXXX.service-now.com` |
-| `X-ServiceNow-Username` | Service account username |
-| `X-ServiceNow-Password` | Service account password |
-| `X-ServiceNow-Script-Execution` | `true` to enable execute_script |
+| `X-ServiceNow-Instance` | `https://devXXXXX.service-now.com` (no trailing slash) |
+| `X-ServiceNow-Username` | Service-account username |
+| `X-ServiceNow-Password` | Service-account password |
+| `X-ServiceNow-Script-Execution` | `true` to enable `execute_script` for this session |
 
-Headers are optional — omit them to use the Worker's env var defaults.
-
----
-
-### Claude.ai
-Settings → Connectors → Add custom connector:
-- **URL:** `https://rk-servicenow-mcp.<your-account>.workers.dev/mcp`
-- **Headers:** Add `Authorization: Bearer <token>` and any `X-ServiceNow-*` headers
+Omit any header to fall back to the Worker's env-var default for that value.
 
 ### Claude Desktop (via `mcp-remote`)
-Settings → Developer → Edit Config. Each person uses their own config block:
-
-**Single user (env var credentials):**
+Settings → Developer → Edit Config:
 ```json
 {
   "mcpServers": {
@@ -202,127 +156,102 @@ Settings → Developer → Edit Config. Each person uses their own config block:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://rk-servicenow-mcp.<your-account>.workers.dev/sse",
-        "--header", "Authorization:Bearer <your-token>"
-      ]
-    }
-  }
-}
-```
-
-**Multi-tenant (each user passes their own instance):**
-```json
-{
-  "mcpServers": {
-    "servicenow-labx": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://rk-servicenow-mcp.<your-account>.workers.dev/sse",
-        "--header", "Authorization:Bearer <shared-worker-token>",
+        "https://rk-servicenow-mcp.<account>.workers.dev/sse",
+        "--header", "Authorization:Bearer <your-token>",
         "--header", "X-ServiceNow-Instance:https://devXXXXX.service-now.com",
         "--header", "X-ServiceNow-Username:admin",
-        "--header", "X-ServiceNow-Password:mypassword",
+        "--header", "X-ServiceNow-Password:yourpassword",
         "--header", "X-ServiceNow-Script-Execution:true"
       ]
     }
   }
 }
 ```
-
 Restart Claude Desktop after editing.
 
-### Cursor / other MCP clients
-Use `/mcp` as the remote MCP URL. Pass `Authorization: Bearer <token>` and any `X-ServiceNow-*` headers your client supports.
+### Claude.ai
+Settings → Connectors → Add custom connector. Use the `/mcp` URL and add the `Authorization` and `X-ServiceNow-*` headers if the connector UI supports custom headers.
 
----
-
-## execute_script (how it works)
-
-On the first call, the MCP installs a small Scripted REST API on your instance (`sys_ws_definition` + `sys_ws_operation`). Every call after that is a single synchronous POST — sub-second, no scheduler delay.
-
-Your script runs inside an IIFE, so use `return` to send a value back:
-
-```javascript
-var gr = new GlideRecord('incident');
-gr.addQuery('priority', 1);
-gr.addQuery('active', true);
-gr.setLimit(5);
-gr.query();
-var out = [];
-while (gr.next()) {
-    out.push({ number: gr.getValue('number'), short_desc: gr.getValue('short_description') });
-}
-return JSON.stringify(out);
-```
-
-For bulk operations, this beats many individual tool calls:
-
-```javascript
-// Close all incidents created today
-var gr = new GlideRecord('incident');
-gr.addEncodedQuery('sys_created_onONToday@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()');
-gr.query();
-var n = 0;
-while (gr.next()) { gr.state = 7; gr.update(); n++; }
-return JSON.stringify({ closed: n });
-```
+### Cursor / other clients
+Use the `/mcp` URL as a remote MCP server with the same headers.
 
 ---
 
 ## Local development
-
 Create `.dev.vars` (gitignored):
 ```
+MCP_AUTH_TOKEN=dev-token
 SERVICENOW_INSTANCE_URL=https://devXXXXX.service-now.com
-SERVICENOW_USERNAME=your_service_account
-SERVICENOW_PASSWORD=your_password
+SERVICENOW_USERNAME=admin
+SERVICENOW_PASSWORD=yourpassword
 ENABLE_SCRIPT_EXECUTION=true
 ```
-Run `npm run dev` → server on `http://localhost:8787`.
+```bash
+npm run dev   # http://localhost:8787
+```
+
+---
+
+## ServiceNow service-account roles
+
+Create a dedicated, least-privilege user — do not reuse a personal admin login.
+
+| Feature | Roles |
+|---|---|
+| Read tables | `snc_read_only` or table ACLs |
+| ITSM read/write | `itil` |
+| Knowledge search | `knowledge` |
+| Metadata exploration & logs | read on `sys_dictionary`, `sys_db_object`, `sys_choice`, `syslog` |
+| Update sets | write on `sys_user_preference` |
+| `execute_script` | `admin` (installs a Scripted REST API on first call) |
+
+---
+
+## execute_script
+
+On first use, the MCP installs a Scripted REST API on the instance (`sys_ws_definition` + `sys_ws_operation`). Subsequent calls hit it directly — synchronous, sub-second. Your script runs in an IIFE; use `return` to send a value back:
+
+```javascript
+var gr = new GlideRecord('incident');
+gr.addEncodedQuery('sys_created_onONToday@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()');
+gr.query();
+var n = 0;
+while (gr.next()) { gr.urgency = 1; gr.update(); n++; }
+return JSON.stringify({ updated: n });
+```
+
+Enabled per-session via the `X-ServiceNow-Script-Execution: true` header (or the env default).
 
 ---
 
 ## Project structure
-
 ```
 src/
-├── index.ts              # Worker routing (/mcp, /sse, /health)
-├── mcp-agent.ts          # Agent class, tool registration
-├── sn-client.ts          # Shared HTTP client, helpers, types
-├── ai-stub.js            # Build shim for the 'ai' package
-└── tools/
-    ├── table.ts          # query, get, create, update, delete, batch_create
-    ├── incidents.ts      # update_incident, add_work_note
-    ├── users.ts          # get_user
-    ├── schema.ts         # get_table_schema
-    ├── explore.ts        # search_tables, search_fields, get_choices
-    ├── aggregate.ts      # aggregate_table
-    ├── knowledge.ts      # search_knowledge
-    ├── update_sets.ts    # set/get_current_update_set
-    ├── debug.ts          # query_logs
-    └── scripts.ts        # execute_script + diagnostics (opt-in)
+├── index.ts        # Worker: auth check, credential resolution, routing
+├── mcp-agent.ts    # Durable Object agent; receives credentials via props
+├── sn-client.ts    # snFetch, SNProps type, header extraction, helpers
+├── ai-stub.js      # Build shim for the 'ai' package
+└── tools/          # One file per tool group
 ```
 
-**Adding a tool:** create `src/tools/your_tool.ts` exporting `registerYourTools(server, env)`, call it in `mcp-agent.ts`, and add the name to `registeredToolNames()`. Use `snFetch`, `ok()`, and `fail()` from `sn-client.ts` for HTTP and error handling.
+Adding a tool group: create `src/tools/x.ts` exporting `registerXTools(server, props)`, call it in `mcp-agent.ts`, add the name to `registeredToolNames()`. Use `snFetch`, `ok()`, `fail()` from `sn-client.ts`.
 
 ---
 
 ## Endpoints
-
 | Path | Purpose |
 |---|---|
 | `/mcp` | Streamable HTTP transport (modern clients) |
-| `/sse` | SSE transport (for `mcp-remote`) |
-| `/health` | Status, instance URL, enabled tools |
+| `/sse` | SSE transport (`mcp-remote`, Claude Desktop) |
+| `/health` | Status + tool list (no auth) |
 
 ---
 
-## Security
-
-- The Worker is public by default — anyone with the URL can call any tool. Put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/) in front of it for anything beyond a personal dev instance.
-- The service account's roles define the blast radius. Use a dedicated, least-privilege user.
-- `execute_script` is full server-side code execution. Keep it disabled (`ENABLE_SCRIPT_EXECUTION=false`) unless you need it, and never expose it on a production instance without Access in front.
+## Security notes
+- **Always set `MCP_AUTH_TOKEN`.** An empty token disables auth and exposes every tool — including `execute_script` — to anyone with the URL.
+- Store the token and passwords as **secrets**, never as `vars` (deploys overwrite vars).
+- The service account's ServiceNow roles define the blast radius. Use least privilege.
+- For higher assurance, put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/) in front of the Worker.
 
 ---
 
