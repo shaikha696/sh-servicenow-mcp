@@ -25,14 +25,17 @@ function unauthorized(reason: "missing" | "invalid"): Response {
 		reason === "missing"
 			? "No Authorization header. Add 'Authorization: Bearer <token>' to your client config."
 			: "Invalid bearer token. The token does not match the server's MCP_AUTH_TOKEN.";
+	// NOTE: deliberately NO WWW-Authenticate header. mcp-remote and other
+	// MCP clients treat a 401 + "WWW-Authenticate: Bearer" as a signal to
+	// start an OAuth discovery/registration flow (RFC 9728). This server uses
+	// a STATIC bearer token, not OAuth, so advertising WWW-Authenticate sends
+	// clients down a fatal OAuth path (registerClient → ServerError) instead
+	// of letting them connect with the token they already hold. Keep it off.
 	return new Response(
 		JSON.stringify({ error: "Unauthorized", reason, message }),
 		{
 			status: 401,
-			headers: {
-				"Content-Type": "application/json",
-				"WWW-Authenticate": `Bearer realm="ServiceNow MCP Server", error="${reason === "missing" ? "missing_token" : "invalid_token"}"`,
-			},
+			headers: { "Content-Type": "application/json" },
 		},
 	);
 }
