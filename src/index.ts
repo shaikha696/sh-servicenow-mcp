@@ -8,29 +8,30 @@ import {
 export { ServiceNowMCP };
 
 /**
- * Validate the bearer token. If MCP_AUTH_TOKEN is unset/empty, auth is
- * bypassed (single-user backward-compat). Otherwise require
- * "Authorization: Bearer <token>".
+ * Validate the bearer token. Returns:
+ *   "ok"      — auth passed (or auth disabled because MCP_AUTH_TOKEN is empty)
+ *   "missing" — no Authorization header present
+ *   "invalid" — header present but token doesn't match
  */
-function isAuthorized(request: Request, env: Env): boolean {
-	if (!env.MCP_AUTH_TOKEN) return true;
+function checkAuth(request: Request, env: Env): "ok" | "missing" | "invalid" {
+	if (!env.MCP_AUTH_TOKEN) return "ok";
 	const auth = request.headers.get("Authorization");
-	if (!auth?.startsWith("Bearer ")) return false;
-	return auth.slice(7) === env.MCP_AUTH_TOKEN;
+	if (!auth?.startsWith("Bearer ")) return "missing";
+	return auth.slice(7) === env.MCP_AUTH_TOKEN ? "ok" : "invalid";
 }
 
-function unauthorized(): Response {
+function unauthorized(reason: "missing" | "invalid"): Response {
+	const message =
+		reason === "missing"
+			? "No Authorization header. Add 'Authorization: Bearer <token>' to your client config."
+			: "Invalid bearer token. The token does not match the server's MCP_AUTH_TOKEN.";
 	return new Response(
-		JSON.stringify({
-			error: "Unauthorized",
-			message:
-				"Provide a valid Bearer token in the Authorization header.",
-		}),
+		JSON.stringify({ error: "Unauthorized", reason, message }),
 		{
 			status: 401,
 			headers: {
 				"Content-Type": "application/json",
-				"WWW-Authenticate": 'Bearer realm="ServiceNow MCP Server"',
+				"WWW-Authenticate": `Bearer realm="ServiceNow MCP Server", error="${reason === "missing" ? "missing_token" : "invalid_token"}"`,
 			},
 		},
 	);
@@ -80,8 +81,9 @@ export default {
 			);
 		}
 
-		if (!isAuthorized(request, env)) {
-			return unauthorized();
+		const auth = checkAuth(request, env);
+		if (auth !== "ok") {
+			return unauthorized(auth);
 		}
 
 		// Resolve per-request credentials and attach to ctx.props. The agents
