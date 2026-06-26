@@ -17,7 +17,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "rk-servicenow-mcp",
+	"name": "sh-servicenow-mcp",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
