@@ -39,7 +39,7 @@
 		]
 	},
 	"vars": {
-		"SERVICENOW_INSTANCE_URL": "",
+		"SERVICENOW_INSTANCE_URL": "https://developer.servicenow.com",
 		"ENABLE_SCRIPT_EXECUTION": "false"
 	},
 	"observability": {
