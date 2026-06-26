@@ -1,5 +1,5 @@
 {
-	"name": "sh-servicenow-mcp",
+	"name": "rk-servicenow-mcp",
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
